@@ -17,5 +17,5 @@ jobs:
       - name: Run workflow logic
         run: |
           echo "Executing Workflow X for environment: ${{ inputs.environment }}"
-          echo "This is the reusable workflow updated[9]"
+          echo "This is the reusable workflow updated[10]"
           # Add your actual workflow logic here
