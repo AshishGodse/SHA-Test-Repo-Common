@@ -3,7 +3,7 @@ name: Workflow Z - Auto Update Workflow X References
 on:
   push:
     paths:
-      - '.github/workflows/workflow-x.yml'
+      - '.github/workflows/workflow-X.yml'
     branches:
       - main
 
