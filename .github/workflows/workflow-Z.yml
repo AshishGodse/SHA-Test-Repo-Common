@@ -24,14 +24,6 @@ jobs:
           echo "new_hash=${NEW_HASH}" >> $GITHUB_OUTPUT
           echo "New commit hash: ${NEW_HASH}"
 
-      - name: Read repos config
-        id: config
-        run: |
-          content=$(cat .github/repos-config.yml)
-          echo "repos_config<<EOF" >> $GITHUB_OUTPUT
-          echo "$content" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
       - name: Install YQ for YAML parsing
         run: |
           sudo apt-get update
@@ -42,14 +34,9 @@ jobs:
           echo "=========================================="
           echo "📋 Repositories to be processed:"
           echo "=========================================="
-          repos=$(cat .github/repos-config.yml | yq eval '.repos[].name' -)
-          count=0
-          for repo in $repos; do
-            count=$((count + 1))
-            echo "$count. $repo"
+          yq eval '.repos[].name' .github/repos-config.yml | while read repo; do
+            echo "  - $repo"
           done
-          echo "=========================================="
-          echo "Total repositories: $count"
           echo "=========================================="
           echo ""
         shell: bash
@@ -59,16 +46,19 @@ jobs:
           NEW_HASH: ${{ steps.hash.outputs.new_hash }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Extract repo names from config using pipe
-          repos=$(cat .github/repos-config.yml | yq eval '.repos[].name' -)
+          echo "=========================================="
+          echo "🔄 Starting repository update process"
+          echo "=========================================="
+          echo ""
           
-          for repo in $repos; do
+          # Extract repo names from config
+          yq eval '.repos[].name' .github/repos-config.yml | while read repo; do
             echo "=========================================="
             echo "Processing repository: $repo"
             echo "=========================================="
             
-            # Get workflow file for this repo using pipe
-            workflow_file=$(cat .github/repos-config.yml | yq eval ".repos[] | select(.name == \"$repo\") | .workflow_file" -)
+            # Get workflow file for this repo
+            workflow_file=$(yq eval ".repos[] | select(.name == \"$repo\") | .workflow_file" .github/repos-config.yml)
             
             if [ -z "$workflow_file" ]; then
               echo "❌ Workflow file not found for $repo"
@@ -94,6 +84,7 @@ jobs:
             
             if [ "$old_hash" == "$NEW_HASH" ]; then
               echo "✅ Hash already up-to-date in $repo"
+              echo ""
               continue
             fi
             
