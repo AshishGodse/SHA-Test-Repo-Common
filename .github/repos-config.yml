@@ -1,0 +1,18 @@
+# Metadata file listing all repositories that reference workflow-x
+repos:
+  - name: repo1
+    owner: your-org
+    workflow_file: .github/workflows/workflow-1.yml
+  - name: repo2
+    owner: your-org
+    workflow_file: .github/workflows/workflow-2.yml
+  # Add more repos below as needed
+  # - name: repo3
+  #   owner: your-org
+  #   workflow_file: .github/workflows/workflow-3.yml
+  # - name: repo4
+  #   owner: your-org
+  #   workflow_file: .github/workflows/workflow-4.yml
+  # - name: repo5
+  #   owner: your-org
+  #   workflow_file: .github/workflows/workflow-5.yml

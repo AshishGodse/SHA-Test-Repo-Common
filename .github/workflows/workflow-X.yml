@@ -1,0 +1,21 @@
+name: Workflow X (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+
+jobs:
+  execute-workflow:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Run workflow logic
+        run: |
+          echo "Executing Workflow X for environment: ${{ inputs.environment }}"
+          echo "This is the reusable workflow"
+          # Add your actual workflow logic here

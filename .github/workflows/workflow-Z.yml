@@ -1,0 +1,121 @@
+name: Workflow Z - Auto Update Workflow X References
+
+on:
+  push:
+    paths:
+      - '.github/workflows/workflow-x.yml'
+    branches:
+      - main
+
+jobs:
+  update-references:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout common repo
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Get new commit hash
+        id: hash
+        run: |
+          $NEW_HASH = git rev-parse HEAD
+          echo "new_hash=$NEW_HASH" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "New commit hash: $NEW_HASH"
+        shell: pwsh
+
+      - name: Read repos config
+        id: config
+        run: |
+          $content = Get-Content .github/repos-config.yml -Raw
+          echo "repos_config<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          echo "$content" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          echo "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        shell: pwsh
+
+      - name: Install YQ for YAML parsing
+        run: |
+          choco install yq -y
+        shell: powershell
+
+      - name: Parse and process repos
+        env:
+          REPOS_CONFIG: ${{ steps.config.outputs.repos_config }}
+          NEW_HASH: ${{ steps.hash.outputs.new_hash }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $configContent = @"
+          ${{ steps.config.outputs.repos_config }}
+          "@
+          
+          # Save config to temp file
+          $configContent | Out-File -FilePath temp_config.yml -Encoding utf8
+          
+          # Extract repos using yq
+          $repos = yq eval '.repos[].name' temp_config.yml
+          
+          foreach ($repo in $repos) {
+            Write-Host "Processing repository: $repo"
+            
+            # Get workflow file for this repo
+            $workflowFile = yq eval ".repos[] | select(.name == `"$repo`") | .workflow_file" temp_config.yml
+            
+            if ([string]::IsNullOrEmpty($workflowFile)) {
+              Write-Host "Workflow file not found for $repo"
+              continue
+            }
+            
+            Write-Host "Workflow file: $workflowFile"
+            
+            # Clone repository
+            git clone https://github.com/your-org/$repo.git temp/$repo
+            
+            # Extract old hash from workflow file
+            $workflowContent = Get-Content "temp/$repo/$workflowFile" -Raw
+            if ($workflowContent -match 'workflow-x\.yml@([a-f0-9]{40})') {
+              $OLD_HASH = $matches[1]
+            } else {
+              Write-Host "No workflow-x reference found in $repo"
+              continue
+            }
+            
+            $NEW_HASH = "${{ steps.hash.outputs.new_hash }}"
+            
+            if ($OLD_HASH -eq $NEW_HASH) {
+              Write-Host "Hash already up-to-date in $repo"
+              continue
+            }
+            
+            Write-Host "Updating $repo: $OLD_HASH -> $NEW_HASH"
+            
+            # Update workflow file
+            $updatedContent = $workflowContent -replace $OLD_HASH, $NEW_HASH
+            Set-Content -Path "temp/$repo/$workflowFile" -Value $updatedContent -Encoding utf8
+            
+            # Configure git
+            Set-Location "temp/$repo"
+            git config user.email "automation@github.com"
+            git config user.name "Automation Bot"
+            
+            # Create branch and commit
+            $branchName = "update-workflow-x-$($NEW_HASH.Substring(0, 8))"
+            git checkout -b $branchName
+            git add $workflowFile
+            git commit -m "chore: update workflow-x reference to $($NEW_HASH.Substring(0, 8))"
+            
+            # Push branch
+            git push origin $branchName
+            
+            # Create PR
+            gh pr create `
+              --title "chore: update workflow-x reference to $($NEW_HASH.Substring(0, 8))" `
+              --body "Automated update for workflow-x commit reference from $OLD_HASH to $NEW_HASH" `
+              --base main `
+              --head $branchName
+            
+            Set-Location ../..
+            Write-Host "Completed processing $repo"
+          }
+          
+          Write-Host "All repositories processed"
+        shell: powershell
