@@ -90,8 +90,8 @@ jobs:
             sed -i "s/${old_hash}/${NEW_HASH}/g" $workflow_file
             
             # Configure git
-            git config user.email "automation@github.com"
-            git config user.name "Automation Bot"
+            git config user.email "aashishgodse9867@gmail.com"
+            git config user.name "Ashish Godse"
             
             # Create branch and commit
             branch_name="update-workflow-x-${NEW_HASH:0:8}"
