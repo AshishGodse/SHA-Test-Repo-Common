@@ -24,19 +24,12 @@ jobs:
           echo "new_hash=${NEW_HASH}" >> $GITHUB_OUTPUT
           echo "New commit hash: ${NEW_HASH}"
 
-      - name: Install YQ for YAML parsing
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y yq
-
       - name: List all repositories to process
         run: |
           echo "=========================================="
           echo "📋 Repositories to be processed:"
           echo "=========================================="
-          yq eval '.repos[].name' .github/repos-config.yml | while read repo; do
-            echo "  - $repo"
-          done
+          grep "name:" .github/repos-config.yml | grep -v "#" | awk '{print "  - " $NF}'
           echo "=========================================="
           echo ""
         shell: bash
@@ -51,14 +44,16 @@ jobs:
           echo "=========================================="
           echo ""
           
-          # Extract repo names from config
-          yq eval '.repos[].name' .github/repos-config.yml | while read repo; do
+          # Extract repo names from config using grep and awk
+          repos=$(grep "name:" .github/repos-config.yml | grep -v "#" | awk '{print $NF}')
+          
+          for repo in $repos; do
             echo "=========================================="
             echo "Processing repository: $repo"
             echo "=========================================="
             
-            # Get workflow file for this repo
-            workflow_file=$(yq eval ".repos[] | select(.name == \"$repo\") | .workflow_file" .github/repos-config.yml)
+            # Get workflow file for this repo using grep
+            workflow_file=$(grep -A 2 "name: $repo" .github/repos-config.yml | grep "workflow_file:" | awk '{print $NF}')
             
             if [ -z "$workflow_file" ]; then
               echo "❌ Workflow file not found for $repo"
