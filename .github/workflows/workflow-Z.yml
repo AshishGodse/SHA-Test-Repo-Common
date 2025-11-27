@@ -37,6 +37,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y yq
 
+      - name: List all repositories to process
+        run: |
+          echo "=========================================="
+          echo "📋 Repositories to be processed:"
+          echo "=========================================="
+          repos=$(cat .github/repos-config.yml | yq eval '.repos[].name' -)
+          count=0
+          for repo in $repos; do
+            count=$((count + 1))
+            echo "$count. $repo"
+          done
+          echo "=========================================="
+          echo "Total repositories: $count"
+          echo "=========================================="
+          echo ""
+        shell: bash
+
       - name: Parse and process repos
         env:
           NEW_HASH: ${{ steps.hash.outputs.new_hash }}
