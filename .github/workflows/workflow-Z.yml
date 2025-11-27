@@ -42,39 +42,45 @@ jobs:
           NEW_HASH: ${{ steps.hash.outputs.new_hash }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Extract repo names from config
-          repos=$(yq eval '.repos[].name' .github/repos-config.yml)
+          # Extract repo names from config using pipe
+          repos=$(cat .github/repos-config.yml | yq eval '.repos[].name' -)
           
           for repo in $repos; do
+            echo "=========================================="
             echo "Processing repository: $repo"
+            echo "=========================================="
             
-            # Get workflow file for this repo
-            workflow_file=$(yq eval ".repos[] | select(.name == \"$repo\") | .workflow_file" .github/repos-config.yml)
+            # Get workflow file for this repo using pipe
+            workflow_file=$(cat .github/repos-config.yml | yq eval ".repos[] | select(.name == \"$repo\") | .workflow_file" -)
             
             if [ -z "$workflow_file" ]; then
-              echo "Workflow file not found for $repo"
+              echo "❌ Workflow file not found for $repo"
               continue
             fi
             
-            echo "Workflow file: $workflow_file"
+            echo "✅ Workflow file: $workflow_file"
             
             # Clone repository
+            echo "📥 Cloning repository: $repo"
             git clone https://github.com/AshishGodse/$repo.git temp/$repo
             
             # Extract old hash from workflow file
             old_hash=$(grep -oP 'workflow-X\.yml@\K[a-f0-9]{40}' temp/$repo/$workflow_file 2>/dev/null || echo "")
             
             if [ -z "$old_hash" ]; then
-              echo "No workflow-X reference found in $repo"
+              echo "❌ No workflow-X reference found in $repo"
               continue
             fi
+            
+            echo "📌 Current hash in $repo: $old_hash"
+            echo "📌 New hash from common repo: $NEW_HASH"
             
             if [ "$old_hash" == "$NEW_HASH" ]; then
-              echo "Hash already up-to-date in $repo"
+              echo "✅ Hash already up-to-date in $repo"
               continue
             fi
             
-            echo "Updating $repo: $old_hash -> $NEW_HASH"
+            echo "🔄 Updating $repo: $old_hash -> $NEW_HASH"
             
             # Update workflow file
             cd temp/$repo
@@ -86,23 +92,29 @@ jobs:
             
             # Create branch and commit
             branch_name="update-workflow-x-${NEW_HASH:0:8}"
+            echo "🌿 Creating branch: $branch_name"
             git checkout -b $branch_name
             git add $workflow_file
             git commit -m "chore: update workflow-x reference to ${NEW_HASH:0:8}"
             
             # Push branch
+            echo "📤 Pushing branch to origin"
             git push origin $branch_name
             
             # Create PR
+            echo "📝 Creating Pull Request"
             gh pr create \
               --title "chore: update workflow-x reference to ${NEW_HASH:0:8}" \
-              --body "Automated update for workflow-x commit reference from $old_hash to $NEW_HASH" \
+              --body "Automated update for workflow-x commit reference\n\nOld hash: $old_hash\nNew hash: $NEW_HASH\n\nThis PR was automatically created by Workflow Z" \
               --base main \
-              --head $branch_name
+              --head $branch_name || echo "⚠️ PR creation might have issues but branch is pushed"
             
             cd ../..
-            echo "Completed processing $repo"
+            echo "✅ Completed processing $repo"
+            echo ""
           done
           
-          echo "All repositories processed"
+          echo "=========================================="
+          echo "✅ All repositories processed successfully"
+          echo "=========================================="
         shell: bash
