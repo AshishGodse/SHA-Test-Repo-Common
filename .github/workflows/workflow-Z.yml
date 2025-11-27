@@ -37,7 +37,7 @@ jobs:
       - name: Parse and process repos
         env:
           NEW_HASH: ${{ steps.hash.outputs.new_hash }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.WORKFLOW_Z_TOKEN }}
         run: |
           echo "=========================================="
           echo "🔄 Starting repository update process"
@@ -62,7 +62,7 @@ jobs:
             
             echo "✅ Workflow file: $workflow_file"
             
-            # Clone repository with token
+            # Clone repository with PAT token
             echo "📥 Cloning repository: $repo"
             git clone https://x-access-token:$GH_TOKEN@github.com/AshishGodse/$repo.git temp/$repo
             
@@ -100,7 +100,7 @@ jobs:
             git add $workflow_file
             git commit -m "chore: update workflow-x reference to ${NEW_HASH:0:8}"
             
-            # Push branch with token auth
+            # Push branch with PAT token
             echo "📤 Pushing branch to origin"
             git push https://x-access-token:$GH_TOKEN@github.com/AshishGodse/$repo.git $branch_name
             
