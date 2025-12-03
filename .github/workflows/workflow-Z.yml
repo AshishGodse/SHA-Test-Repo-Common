@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       target_org:
-        description: 'Organization to scan for repositories (repositories must start with "mednet")'
+        description: 'Organization to scan for repositories (repositories must start with "SHA-Test")'
         required: false
-        default: 'SHA-Test'
+        default: 'AshishGodse'
 
 jobs:
   update-references:
@@ -32,18 +32,18 @@ jobs:
           echo "new_hash=${NEW_HASH}" >> $GITHUB_OUTPUT
           echo "New commit hash: ${NEW_HASH}"
 
-      - name: Fetch organization repositories starting with "mednet"
+      - name: Fetch organization repositories starting with "SHA-Test"
         id: fetch_repos
         run: |
           set -euo pipefail
-          echo "Fetching repositories for org: $TARGET_ORG (filter: ^mednet)"
+          echo "Fetching repositories for org: $TARGET_ORG (filter: ^SHA-Test)"
           page=1
           rm -f repos.txt || true
           touch repos.txt
           while :; do
             echo "Fetching page $page..."
             resp=$(curl -s -H "Authorization: token $GH_TOKEN" "https://api.github.com/orgs/$TARGET_ORG/repos?per_page=100&page=$page")
-            echo "$resp" | jq -r '.[] | select(.name | test("^mednet")) | select(.archived|not) | .name' >> repos.txt
+            echo "$resp" | jq -r '.[] | select(.name | test("^SHA-Test")) | select(.archived|not) | .name' >> repos.txt
             count=$(echo "$resp" | jq 'length')
             if [ "$count" -lt 100 ]; then
               break
