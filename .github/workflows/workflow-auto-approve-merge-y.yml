@@ -1,0 +1,130 @@
+
+name: Workflow A — Auto-Approve & Auto-Merge for Workflow Z PRs
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: write         # needed to merge & delete branch
+  pull-requests: write    # needed to create reviews, add labels, comment
+
+jobs:
+  gate-approve-merge:
+    runs-on: ubuntu-latest
+
+    # Optionally restrict by branch naming from Workflow Z
+    if: startsWith(github.head_ref, 'update-workflow-x-')
+
+    steps:
+      - name: Read PR title & body
+        id: read
+        run: |
+          PR="${{ github.event.pull_request.number }}"
+
+          # Pull title/body as JSON fields and reduce via --jq
+          # (gh pr view supports --json + --jq for field extraction)
+          TITLE="$(gh pr view "$PR" --json title --jq '.title')"
+          BODY="$(gh pr view "$PR" --json body  --jq '.body')"
+
+          echo "title=$TITLE" >> "$GITHUB_OUTPUT"
+          echo "body<<EOF"     >> "$GITHUB_OUTPUT"
+          echo "$BODY"         >> "$GITHUB_OUTPUT"
+          echo "EOF"            >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_Z_REVIEWER_TOKEN }}
+
+      - name: Verify PR is from Workflow Z (title/body match)
+        id: check
+        run: |
+          TITLE='${{ steps.read.outputs.title }}'
+          BODY='${{ steps.read.outputs.body }}'
+
+          # Title Workflow Z generates: "chore: update workflow-x reference to {8-hex}"
+          TITLE_OK=0
+          if [[ "$TITLE" =~ ^chore:\ update\ workflow-x\ reference\ to\ [0-9a-f]{8}$ ]]; then
+            TITLE_OK=1
+          fi
+
+          # Body includes the marker line and SHA details added by Workflow Z
+          # e.g., "Automated update for workflow-x commit reference\n\nOld hash: <40-hex>\nNew hash: <40-hex>\n\nThis PR was automatically created by Workflow Z"
+          BODY_OK=0
+          if echo "$BODY" | grep -q "This PR was automatically created by Workflow Z"; then
+            BODY_OK=1
+          fi
+
+          if [[ $TITLE_OK -eq 1 || $BODY_OK -eq 1 ]]; then
+            echo "matched=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Workflow Z PR detected"
+          else
+            echo "matched=false" >> "$GITHUB_OUTPUT"
+            echo "ℹ️ Skipping: PR does not look like a Workflow Z update."
+          fi
+
+      - name: Exit if not a Workflow Z PR
+        if: steps.check.outputs.matched != 'true'
+        run: |
+          echo "No action taken."
+          exit 0
+
+      - name: Extract Old/New SHA from PR body
+        id: shas
+        run: |
+          BODY='${{ steps.read.outputs.body }}'
+
+          # Parse 40-hex SHA lines
+          OLD_SHA="$(printf "%s" "$BODY" | grep -oE 'Old hash:\s*[0-9a-f]{40}' | awk '{print $3}')"
+          NEW_SHA="$(printf "%s" "$BODY" | grep -oE 'New hash:\s*[0-9a-f]{40}' | awk '{print $3}')"
+
+          # Fallbacks if body parsing fails
+          if [[ -z "$NEW_SHA" ]]; then
+            NEW_SHA="${{ github.event.pull_request.head.sha }}"
+          fi
+
+          echo "old_sha=${OLD_SHA}" >> "$GITHUB_OUTPUT"
+          echo "new_sha=${NEW_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Add automation labels
+        run: |
+          PR="${{ github.event.pull_request.number }}"
+          # Add one or more labels in a single call
+          gh pr edit "$PR" --add-label "automation,workflow-x-update"
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_Z_REVIEWER_TOKEN }}
+
+      - name: Post summary comment with old/new SHA
+        run: |
+          PR="${{ github.event.pull_request.number }}"
+          OLD="${{ steps.shas.outputs.old_sha }}"
+          NEW="${{ steps.shas.outputs.new_sha }}"
+          BR="${{ github.head_ref }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          COMMENT=$'### Workflow Z summary\n'\
+                  $'- Old SHA: '"${OLD:-N/A}"$'\n'\
+                  $'- New SHA: '"${NEW}"$'\n'\
+                  $'- Branch: '"${BR}"$'\n'\
+                  $'- Head commit: '"${HEAD_SHA}"$'\n'\
+                  $'\nApproved & auto-merge enabled by automation.'
+
+          gh pr comment "$PR" --body "$COMMENT"
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_Z_REVIEWER_TOKEN }}
+
+      - name: Approve PR
+        run: |
+          gh pr review "${{ github.event.pull_request.number }}" \
+            --approve \
+            --body "Auto-approval: Workflow Z update (workflow-X commit reference)."
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_Z_REVIEWER_TOKEN }}
+
+      - name: Enable auto-merge (squash + delete branch, match head)
+        run: |
+          gh pr merge "${{ github.event.pull_request.number }}" \
+            --auto \
+            --squash \
+            --delete-branch \
+            --match-head-commit "${{ github.event.pull_request.head.sha }}"
+        env:
+          GH_TOKEN: ${{ secrets.WORKFLOW_Z_REVIEWER_TOKEN }}
