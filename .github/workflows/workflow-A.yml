@@ -72,7 +72,7 @@ jobs:
       - name: Check and process PRs in all repos
         env:
           TARGET_ORG: AshishGodse
-          GH_TOKEN: ${{ secrets.WORKFLOW_A_TOKEN }}
+          GH_TOKEN: ${{ secrets.WORKFLOW_Z_TOKEN }}
         run: |
           set -euo pipefail
           
@@ -93,7 +93,6 @@ jobs:
             echo "🔍 Checking repository: $repo"
             echo "=========================================="
             
-            # Fetch all open PRs with "Auto Approve" in title
             prs=$(gh pr list \
               --repo "$TARGET_ORG/$repo" \
               --state open \
@@ -122,7 +121,8 @@ jobs:
               echo "PR Author: $pr_author"
               echo ""
               
-              echo "⏳ Approving PR #$pr_number..."
+              echo "⏳ Approving PR #$pr_number with WORKFLOW_A_TOKEN..."
+              export GH_TOKEN=${{ secrets.WORKFLOW_A_TOKEN }}
               if gh pr review "$pr_number" \
                 --repo "$TARGET_ORG/$repo" \
                 --approve \
@@ -131,13 +131,13 @@ jobs:
                 pr_approved=$((pr_approved + 1))
               else
                 echo "❌ Failed to approve PR #$pr_number"
-                continue
               fi
               
               sleep 2
               
               echo ""
-              echo "⏳ Merging PR #$pr_number..."
+              echo "⏳ Merging PR #$pr_number with WORKFLOW_Z_TOKEN..."
+              export GH_TOKEN=${{ secrets.WORKFLOW_Z_TOKEN }}
               if gh pr merge "$pr_number" \
                 --repo "$TARGET_ORG/$repo" \
                 --squash \
