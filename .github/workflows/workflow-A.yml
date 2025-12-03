@@ -1,0 +1,174 @@
+name: Workflow Auto Approve and Merge (Triggered by Z)
+
+on:
+  workflow_run:
+    workflows: ["Workflow Z - Auto Update Workflow X References"]
+    types:
+      - completed
+    branches:
+      - main
+
+jobs:
+  auto-approve-merge:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: write
+    
+    # Only run if Workflow Z completed successfully
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Workflow Z Completion Detected
+        run: |
+          echo "=========================================="
+          echo "✅ Workflow Z completed successfully"
+          echo "=========================================="
+          echo "Triggered by: ${{ github.event.workflow_run.name }}"
+          echo "Run ID: ${{ github.event.workflow_run.id }}"
+          echo "Conclusion: ${{ github.event.workflow_run.conclusion }}"
+          echo ""
+          echo "⏳ Starting Auto Approve and Merge process..."
+          echo "=========================================="
+          echo ""
+        shell: bash
+
+      - name: Fetch all SHA-Test repositories
+        id: fetch_repos
+        env:
+          TARGET_ORG: AshishGodse
+          GH_TOKEN: ${{ secrets.WORKFLOW_Z_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "=========================================="
+          echo "📋 Fetching all SHA-Test repositories"
+          echo "=========================================="
+          
+          rm -f sha_test_repos.txt || true
+          touch sha_test_repos.txt
+          
+          gh repo list $TARGET_ORG \
+            --limit 1000 \
+            --archived=false \
+            --json name \
+            --jq '.[] | .name' | while read -r repo; do
+            if [[ "$repo" == SHA-Test* ]]; then
+              echo "$repo" >> sha_test_repos.txt
+              echo "✅ Found: $repo"
+            fi
+          done
+          
+          echo ""
+          echo "=========================================="
+          echo "📊 Total SHA-Test repositories found: $(wc -l < sha_test_repos.txt)"
+          echo "=========================================="
+        shell: bash
+
+      - name: Check and process PRs in all repos
+        env:
+          TARGET_ORG: AshishGodse
+          GH_TOKEN: ${{ secrets.WORKFLOW_Z_TOKEN }}
+        run: |
+          set -euo pipefail
+          
+          if [ ! -f sha_test_repos.txt ] || [ ! -s sha_test_repos.txt ]; then
+            echo "No SHA-Test repositories found. Exiting."
+            exit 0
+          fi
+
+          pr_found=false
+          pr_approved=0
+          pr_merged=0
+
+          while read -r repo; do
+            [ -z "$repo" ] && continue
+            
+            echo ""
+            echo "=========================================="
+            echo "🔍 Checking repository: $repo"
+            echo "=========================================="
+            
+            # Fetch all open PRs with "Auto Approve" in title
+            prs=$(gh pr list \
+              --repo "$TARGET_ORG/$repo" \
+              --state open \
+              --base main \
+              --json number,title,author \
+              --jq '.[] | select(.title | contains("Auto Approve")) | "\(.number)|\(.title)|\(.author.login)"' || true)
+            
+            if [ -z "$prs" ]; then
+              echo "⏭️ No PRs with 'Auto Approve' in title found in $repo"
+              continue
+            fi
+
+            pr_found=true
+            echo "Found PR(s) with 'Auto Approve' in title:"
+            
+            while IFS='|' read -r pr_number pr_title pr_author; do
+              [ -z "$pr_number" ] && continue
+              
+              echo ""
+              echo "=========================================="
+              echo "📝 Processing PR Details:"
+              echo "=========================================="
+              echo "Repository: $TARGET_ORG/$repo"
+              echo "PR Number: #$pr_number"
+              echo "PR Title: $pr_title"
+              echo "PR Author: $pr_author"
+              echo ""
+              
+              echo "⏳ Approving PR #$pr_number..."
+              if gh pr review "$pr_number" \
+                --repo "$TARGET_ORG/$repo" \
+                --approve \
+                --body "✅ Auto-approved by Workflow Auto Approve and Merge (Triggered by Z)"; then
+                echo "✅ PR #$pr_number approved successfully"
+                pr_approved=$((pr_approved + 1))
+              else
+                echo "❌ Failed to approve PR #$pr_number"
+                continue
+              fi
+              
+              sleep 2
+              
+              echo ""
+              echo "⏳ Merging PR #$pr_number..."
+              if gh pr merge "$pr_number" \
+                --repo "$TARGET_ORG/$repo" \
+                --squash \
+                --delete-branch \
+                --body "Merged by Workflow Auto Approve and Merge (Triggered by Z)"; then
+                echo "✅ PR #$pr_number merged successfully"
+                pr_merged=$((pr_merged + 1))
+              else
+                echo "❌ Failed to merge PR #$pr_number"
+              fi
+              
+              echo ""
+            done <<< "$prs"
+            
+          done < sha_test_repos.txt
+
+          echo ""
+          echo "=========================================="
+          echo "📊 FINAL SUMMARY"
+          echo "=========================================="
+          if [ "$pr_found" = true ]; then
+            echo "✅ Total PRs approved: $pr_approved"
+            echo "✅ Total PRs merged: $pr_merged"
+          else
+            echo "ℹ️ No PRs with 'Auto Approve' in title found in any repository"
+          fi
+          echo "=========================================="
+          echo ""
+          echo "✅ Auto Approve and Merge workflow completed!"
+        shell: bash
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f sha_test_repos.txt || true
+        shell: bash
