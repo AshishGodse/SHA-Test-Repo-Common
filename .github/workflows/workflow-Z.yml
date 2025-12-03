@@ -146,7 +146,9 @@ jobs:
 
             changed=false
 
-            while IFS= read -r -d '' wf; do
+            # Check for all workflow files
+            for wf in .github/workflows/*.{yml,yaml}; do
+              [ -e "$wf" ] || continue
               echo "Checking workflow file: $wf"
               old_hashes=$(grep -oP 'workflow-X\.yml@\K[a-f0-9]{40}' "$wf" || true)
               if [ -z "$old_hashes" ]; then
@@ -154,20 +156,18 @@ jobs:
                 continue
               fi
 
-              echo "$old_hashes" | sort -u | while read -r old_hash; do
-                if [ -z "$old_hash" ]; then
-                  continue
-                fi
+              while IFS= read -r old_hash; do
+                [ -z "$old_hash" ] && continue
                 echo "  Found reference: workflow-X.yml@$old_hash"
                 if [ "$old_hash" = "$NEW_HASH" ]; then
                   echo "  Already up-to-date in this file."
                   continue
                 fi
                 echo "  Replacing $old_hash -> $NEW_HASH in $wf"
-                sed -E -i "s/${old_hash}/${NEW_HASH}/g" "$wf"
+                sed -i "s/${old_hash}/${NEW_HASH}/g" "$wf"
                 changed=true
-              done
-            done < <(find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) -print0)
+              done <<< "$old_hashes"
+            done
 
             if [ "$changed" = false ]; then
               echo "No workflow-X references updated in $repo. Cleaning up and moving on."
