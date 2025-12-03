@@ -178,9 +178,16 @@ jobs:
             git config user.email "automation@github.com"
             git config user.name "Automation Bot"
 
+            echo ""
+            echo "=========================================="
+            echo "🌿 BRANCH CREATION SECTION"
+            echo "=========================================="
             branch_name="update-workflow-x-${NEW_HASH_SHORT}"
-            echo "Creating branch: $branch_name"
+            echo "📝 Branch name to be created: $branch_name"
+            echo "⏳ Creating new branch..."
             git checkout -b "$branch_name"
+            echo "✅ Branch created successfully"
+            echo ""
 
             git add .github/workflows || true
             if git diff --cached --quiet; then
@@ -189,21 +196,45 @@ jobs:
               continue
             fi
 
+            echo "📝 Committing changes to branch: $branch_name"
             git commit -m "chore: update workflow-x reference to ${NEW_HASH_SHORT}"
+            echo "✅ Commit created successfully"
+            echo ""
 
-            echo "Pushing branch to origin"
+            echo "=========================================="
+            echo "📤 PUSH SECTION"
+            echo "=========================================="
+            echo "⏳ Pushing branch to origin: $branch_name"
             git push https://x-access-token:$GH_TOKEN@github.com/$TARGET_ORG/$repo.git "$branch_name"
+            echo "✅ Branch pushed to origin successfully"
+            echo ""
 
-            echo "Creating Pull Request"
-            gh pr create --repo "$TARGET_ORG/$repo" \
+            echo "=========================================="
+            echo "🔀 PULL REQUEST CREATION SECTION"
+            echo "=========================================="
+            echo "📋 Pull Request Details:"
+            echo "   Repository: $TARGET_ORG/$repo"
+            echo "   Source Branch: $branch_name"
+            echo "   Target Branch: main"
+            echo "   Title: chore: update workflow-x reference to ${NEW_HASH_SHORT}"
+            echo ""
+            echo "⏳ Creating Pull Request..."
+            if gh pr create --repo "$TARGET_ORG/$repo" \
               --title "chore: update workflow-x reference to ${NEW_HASH_SHORT}" \
               --body "Automated update for workflow-x commit reference to ${NEW_HASH_SHORT}" \
               --head "$branch_name" \
-              --base main || echo "PR creation might have issues but branch is pushed"
+              --base main; then
+              echo "✅ Pull Request created successfully"
+            else
+              echo "⚠️ Pull Request creation failed, but branch was pushed successfully"
+            fi
+            echo ""
 
             popd >/dev/null
 
+            echo "=========================================="
             echo "✅ Completed processing $repo"
+            echo "=========================================="
             echo ""
           done < repos.txt
 
