@@ -57,7 +57,8 @@ jobs:
           while :; do
             echo "Fetching page $page..."
             resp=$(curl -s -H "Authorization: token $GH_TOKEN" "https://api.github.com/orgs/$TARGET_ORG/repos?per_page=100&page=$page")
-            
+            echo "Response from API (page $page):"
+            echo "$resp"
             # Check if response is valid JSON and not an error
             if ! echo "$resp" | jq empty 2>/dev/null; then
               echo "Invalid JSON response or API error:"
