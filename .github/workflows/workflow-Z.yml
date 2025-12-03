@@ -42,23 +42,22 @@ jobs:
           echo "new_hash=${NEW_HASH}" >> $GITHUB_OUTPUT
           echo "New commit hash: ${NEW_HASH}"
 
-      - name: Fetch organization repositories starting with "SHA-Test"
-        id: fetch_repos
+      - name: Fetch all organization repositories
+        id: fetch_all_repos
         env:
           TARGET_ORG: ${{ steps.set_org.outputs.target_org }}
           GH_TOKEN: ${{ secrets.WORKFLOW_Z_TOKEN }}
         run: |
           set -euo pipefail
-          echo "Fetching repositories for org: $TARGET_ORG (filter: ^SHA-Test)"
+          echo "Fetching ALL repositories from organization: $TARGET_ORG"
           page=1
-          rm -f repos.txt || true
-          touch repos.txt
+          rm -f all_repos.txt || true
+          touch all_repos.txt
           
           while :; do
             echo "Fetching page $page..."
             resp=$(curl -s -H "Authorization: token $GH_TOKEN" "https://api.github.com/orgs/$TARGET_ORG/repos?per_page=100&page=$page")
-            echo "Response from API (page $page):"
-            echo "$resp"
+            
             # Check if response is valid JSON and not an error
             if ! echo "$resp" | jq empty 2>/dev/null; then
               echo "Invalid JSON response or API error:"
@@ -72,7 +71,7 @@ jobs:
               break
             fi
             
-            echo "$resp" | jq -r '.[] | select(.name | test("^SHA-Test")) | select(.archived|not) | .name' >> repos.txt
+            echo "$resp" | jq -r '.[] | select(.archived|not) | .name' >> all_repos.txt
             count=$(echo "$resp" | jq 'length')
             
             if [ "$count" -lt 100 ]; then
@@ -80,27 +79,54 @@ jobs:
             fi
             page=$((page+1))
           done
-          
-          echo "Repositories to process (one per line):"
-          cat repos.txt || true
-          repos_csv=$(paste -sd, repos.txt || echo "")
-          echo "repos=$repos_csv" >> $GITHUB_OUTPUT
         shell: bash
 
-      - name: Print repos.txt content
+      - name: Print all repositories found
         run: |
           echo "=========================================="
-          echo "📋 Content of repos.txt:"
+          echo "📋 ALL Repositories in organization:"
           echo "=========================================="
-          if [ -f repos.txt ]; then
-            cat repos.txt
+          if [ -f all_repos.txt ]; then
+            cat -n all_repos.txt
             echo ""
-            echo "Total repositories found:"
-            wc -l < repos.txt
+            echo "Total repositories found: $(wc -l < all_repos.txt)"
           else
-            echo "repos.txt file not found!"
+            echo "No repositories found!"
           fi
           echo "=========================================="
+          echo ""
+        shell: bash
+
+      - name: Filter repositories starting with "SHA-Test"
+        run: |
+          echo "=========================================="
+          echo "🔍 Filtering repositories starting with 'SHA-Test'"
+          echo "=========================================="
+          rm -f repos.txt || true
+          touch repos.txt
+          
+          if [ -f all_repos.txt ]; then
+            while read -r repo; do
+              if [[ "$repo" == SHA-Test* ]]; then
+                echo "$repo" >> repos.txt
+                echo "✅ Added: $repo"
+              fi
+            done < all_repos.txt
+          fi
+          
+          echo ""
+          echo "=========================================="
+          echo "📋 Repositories to be processed (SHA-Test*):"
+          echo "=========================================="
+          if [ -f repos.txt ] && [ -s repos.txt ]; then
+            cat -n repos.txt
+            echo ""
+            echo "Total repositories to process: $(wc -l < repos.txt)"
+          else
+            echo "No repositories matching 'SHA-Test*' found!"
+          fi
+          echo "=========================================="
+          echo ""
         shell: bash
 
       - name: Parse and process repos (scan all workflow files and update workflow-X.yml@<old_hash>)
@@ -113,8 +139,9 @@ jobs:
           NEW_HASH_SHORT=${NEW_HASH:0:8}
           echo "Starting processing with NEW_HASH: $NEW_HASH (short: $NEW_HASH_SHORT)"
           mkdir -p temp
-          if [ ! -f repos.txt ]; then
-            echo "No repos.txt found. Nothing to do."
+          
+          if [ ! -f repos.txt ] || [ ! -s repos.txt ]; then
+            echo "No repos.txt found or repos.txt is empty. Nothing to do."
             exit 0
           fi
 
@@ -209,4 +236,5 @@ jobs:
         if: always()
         run: |
           rm -rf temp || true
+          rm -f all_repos.txt || true
         shell: bash
