@@ -216,11 +216,11 @@ jobs:
             echo "   Repository: $TARGET_ORG/$repo"
             echo "   Source Branch: $branch_name"
             echo "   Target Branch: main"
-            echo "   Title: chore: update workflow-x reference to ${NEW_HASH_SHORT}"
+            echo "   Title: Auto Approve: update workflow-x reference to ${NEW_HASH_SHORT}"
             echo ""
             echo "⏳ Creating Pull Request..."
             if gh pr create --repo "$TARGET_ORG/$repo" \
-              --title "chore: update workflow-x reference to ${NEW_HASH_SHORT}" \
+              --title "Auto Approve: update workflow-x reference to ${NEW_HASH_SHORT}" \
               --body "Automated update for workflow-x commit reference to ${NEW_HASH_SHORT}" \
               --head "$branch_name" \
               --base main; then
