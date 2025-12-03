@@ -16,14 +16,24 @@ on:
 jobs:
   update-references:
     runs-on: ubuntu-latest
-    env:
-      TARGET_ORG: ${{ github.event.inputs.target_org }}
-      GH_TOKEN: ${{ secrets.WORKFLOW_Z_TOKEN }}
     steps:
       - name: Checkout common repo
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
+
+      - name: Set TARGET_ORG
+        id: set_org
+        run: |
+          # Use workflow_dispatch input if available, otherwise use default
+          if [ -z "${{ github.event.inputs.target_org }}" ]; then
+            TARGET_ORG="AshishGodse"
+          else
+            TARGET_ORG="${{ github.event.inputs.target_org }}"
+          fi
+          echo "target_org=${TARGET_ORG}" >> $GITHUB_OUTPUT
+          echo "Using organization: ${TARGET_ORG}"
+        shell: bash
 
       - name: Get new commit hash
         id: hash
@@ -34,22 +44,42 @@ jobs:
 
       - name: Fetch organization repositories starting with "SHA-Test"
         id: fetch_repos
+        env:
+          TARGET_ORG: ${{ steps.set_org.outputs.target_org }}
+          GH_TOKEN: ${{ secrets.WORKFLOW_Z_TOKEN }}
         run: |
           set -euo pipefail
           echo "Fetching repositories for org: $TARGET_ORG (filter: ^SHA-Test)"
           page=1
           rm -f repos.txt || true
           touch repos.txt
+          
           while :; do
             echo "Fetching page $page..."
             resp=$(curl -s -H "Authorization: token $GH_TOKEN" "https://api.github.com/orgs/$TARGET_ORG/repos?per_page=100&page=$page")
+            
+            # Check if response is valid JSON and not an error
+            if ! echo "$resp" | jq empty 2>/dev/null; then
+              echo "Invalid JSON response or API error:"
+              echo "$resp"
+              break
+            fi
+            
+            # Check if response contains error
+            if echo "$resp" | jq -e '.message' >/dev/null 2>&1; then
+              echo "API Error: $(echo "$resp" | jq -r '.message')"
+              break
+            fi
+            
             echo "$resp" | jq -r '.[] | select(.name | test("^SHA-Test")) | select(.archived|not) | .name' >> repos.txt
             count=$(echo "$resp" | jq 'length')
+            
             if [ "$count" -lt 100 ]; then
               break
             fi
             page=$((page+1))
           done
+          
           echo "Repositories to process (one per line):"
           cat repos.txt || true
           repos_csv=$(paste -sd, repos.txt || echo "")
@@ -76,7 +106,7 @@ jobs:
         env:
           NEW_HASH: ${{ steps.hash.outputs.new_hash }}
           GH_TOKEN: ${{ secrets.WORKFLOW_Z_TOKEN }}
-          TARGET_ORG: ${{ github.event.inputs.target_org }}
+          TARGET_ORG: ${{ steps.set_org.outputs.target_org }}
         run: |
           set -euo pipefail
           NEW_HASH_SHORT=${NEW_HASH:0:8}
