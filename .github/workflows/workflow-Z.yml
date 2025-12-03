@@ -197,7 +197,7 @@ jobs:
             fi
 
             echo "📝 Committing changes to branch: $branch_name"
-            git commit -m "chore: update workflow-x reference to ${NEW_HASH_SHORT}"
+            git commit -m "Auto Approve: update workflow-x reference to ${NEW_HASH_SHORT}"
             echo "✅ Commit created successfully"
             echo ""
 
