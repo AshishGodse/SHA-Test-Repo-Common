@@ -25,7 +25,6 @@ jobs:
       - name: Set TARGET_ORG
         id: set_org
         run: |
-          # Use workflow_dispatch input if available, otherwise use default
           if [ -z "${{ github.event.inputs.target_org }}" ]; then
             TARGET_ORG="AshishGodse"
           else
@@ -41,6 +40,7 @@ jobs:
           NEW_HASH=$(git rev-parse HEAD)
           echo "new_hash=${NEW_HASH}" >> $GITHUB_OUTPUT
           echo "New commit hash: ${NEW_HASH}"
+        shell: bash
 
       - name: Fetch all organization repositories
         id: fetch_all_repos
@@ -50,35 +50,16 @@ jobs:
         run: |
           set -euo pipefail
           echo "Fetching ALL repositories from organization: $TARGET_ORG"
-          page=1
           rm -f all_repos.txt || true
           touch all_repos.txt
           
-          while :; do
-            echo "Fetching page $page..."
-            resp=$(curl -s -H "Authorization: token $GH_TOKEN" "https://api.github.com/orgs/$TARGET_ORG/repos?per_page=100&page=$page")
-            
-            # Check if response is valid JSON and not an error
-            if ! echo "$resp" | jq empty 2>/dev/null; then
-              echo "Invalid JSON response or API error:"
-              echo "$resp"
-              break
-            fi
-            
-            # Check if response contains error
-            if echo "$resp" | jq -e '.message' >/dev/null 2>&1; then
-              echo "API Error: $(echo "$resp" | jq -r '.message')"
-              break
-            fi
-            
-            echo "$resp" | jq -r '.[] | select(.archived|not) | .name' >> all_repos.txt
-            count=$(echo "$resp" | jq 'length')
-            
-            if [ "$count" -lt 100 ]; then
-              break
-            fi
-            page=$((page+1))
-          done
+          gh repo list $TARGET_ORG \
+            --limit 1000 \
+            --archived=false \
+            --json name \
+            --jq '.[] | .name' >> all_repos.txt
+          
+          echo "✅ Repositories fetched successfully"
         shell: bash
 
       - name: Print all repositories found
@@ -214,12 +195,11 @@ jobs:
             git push https://x-access-token:$GH_TOKEN@github.com/$TARGET_ORG/$repo.git "$branch_name"
 
             echo "Creating Pull Request"
-            gh auth status || true
             gh pr create --repo "$TARGET_ORG/$repo" \
               --title "chore: update workflow-x reference to ${NEW_HASH_SHORT}" \
-              --body "Automated update for workflow-x commit reference\n\nOld hash: $(git rev-parse HEAD)\nNew hash: $NEW_HASH\n\nThis PR was automatically created by Workflow Z" \
+              --body "Automated update for workflow-x commit reference to ${NEW_HASH_SHORT}" \
               --head "$branch_name" \
-              --base main || echo "⚠️ PR creation might have issues but branch is pushed"
+              --base main || echo "PR creation might have issues but branch is pushed"
 
             popd >/dev/null
 
@@ -237,4 +217,5 @@ jobs:
         run: |
           rm -rf temp || true
           rm -f all_repos.txt || true
+          rm -f repos.txt || true
         shell: bash
