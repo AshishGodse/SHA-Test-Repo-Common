@@ -11,7 +11,7 @@ on:
       target_org:
         description: 'Organization to scan for repositories (repositories must start with "mednet")'
         required: false
-        default: 'mednet'
+        default: 'SHA-Test'
 
 jobs:
   update-references:
