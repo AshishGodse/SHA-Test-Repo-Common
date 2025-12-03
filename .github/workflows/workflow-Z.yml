@@ -7,10 +7,18 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      target_org:
+        description: 'Organization to scan for repositories (repositories must start with "mednet")'
+        required: false
+        default: 'mednet'
 
 jobs:
   update-references:
     runs-on: ubuntu-latest
+    env:
+      TARGET_ORG: ${{ github.event.inputs.target_org }}
+      GH_TOKEN: ${{ secrets.WORKFLOW_Z_TOKEN }}
     steps:
       - name: Checkout common repo
         uses: actions/checkout@v3
@@ -24,100 +32,150 @@ jobs:
           echo "new_hash=${NEW_HASH}" >> $GITHUB_OUTPUT
           echo "New commit hash: ${NEW_HASH}"
 
-      - name: List all repositories to process
+      - name: Fetch organization repositories starting with "mednet"
+        id: fetch_repos
         run: |
-          echo "=========================================="
-          echo "📋 Repositories to be processed:"
-          echo "=========================================="
-          grep "name:" .github/repos-config.yml | grep -v "#" | awk '{print "  - " $NF}'
-          echo "=========================================="
-          echo ""
+          set -euo pipefail
+          echo "Fetching repositories for org: $TARGET_ORG (filter: ^mednet)"
+          page=1
+          rm -f repos.txt || true
+          touch repos.txt
+          while :; do
+            echo "Fetching page $page..."
+            resp=$(curl -s -H "Authorization: token $GH_TOKEN" "https://api.github.com/orgs/$TARGET_ORG/repos?per_page=100&page=$page")
+            echo "$resp" | jq -r '.[] | select(.name | test("^mednet")) | select(.archived|not) | .name' >> repos.txt
+            count=$(echo "$resp" | jq 'length')
+            if [ "$count" -lt 100 ]; then
+              break
+            fi
+            page=$((page+1))
+          done
+          echo "Repositories to process (one per line):"
+          cat repos.txt || true
+          repos_csv=$(paste -sd, repos.txt || echo "")
+          echo "repos=$repos_csv" >> $GITHUB_OUTPUT
         shell: bash
 
-      - name: Parse and process repos
+      - name: Print repos.txt content
+        run: |
+          echo "=========================================="
+          echo "📋 Content of repos.txt:"
+          echo "=========================================="
+          if [ -f repos.txt ]; then
+            cat repos.txt
+            echo ""
+            echo "Total repositories found:"
+            wc -l < repos.txt
+          else
+            echo "repos.txt file not found!"
+          fi
+          echo "=========================================="
+        shell: bash
+
+      - name: Parse and process repos (scan all workflow files and update workflow-X.yml@<old_hash>)
         env:
           NEW_HASH: ${{ steps.hash.outputs.new_hash }}
           GH_TOKEN: ${{ secrets.WORKFLOW_Z_TOKEN }}
+          TARGET_ORG: ${{ github.event.inputs.target_org }}
         run: |
-          echo "=========================================="
-          echo "🔄 Starting repository update process"
-          echo "=========================================="
-          echo ""
-          
-          # Extract repo names from config using grep and awk
-          repos=$(grep "name:" .github/repos-config.yml | grep -v "#" | awk '{print $NF}')
-          
-          for repo in $repos; do
+          set -euo pipefail
+          NEW_HASH_SHORT=${NEW_HASH:0:8}
+          echo "Starting processing with NEW_HASH: $NEW_HASH (short: $NEW_HASH_SHORT)"
+          mkdir -p temp
+          if [ ! -f repos.txt ]; then
+            echo "No repos.txt found. Nothing to do."
+            exit 0
+          fi
+
+          while read -r repo || [ -n "$repo" ]; do
+            [ -z "$repo" ] && continue
             echo "=========================================="
             echo "Processing repository: $repo"
             echo "=========================================="
-            
-            # Get workflow file for this repo using grep
-            workflow_file=$(grep -A 2 "name: $repo" .github/repos-config.yml | grep "workflow_file:" | awk '{print $NF}')
-            
-            if [ -z "$workflow_file" ]; then
-              echo "❌ Workflow file not found for $repo"
+
+            rm -rf temp/"$repo"
+            echo "Cloning repository: $TARGET_ORG/$repo"
+            git clone --depth=1 https://x-access-token:$GH_TOKEN@github.com/$TARGET_ORG/$repo.git temp/"$repo" || { echo "Failed to clone $repo, skipping"; continue; }
+
+            pushd temp/"$repo" >/dev/null
+
+            if [ ! -d ".github/workflows" ]; then
+              echo "No .github/workflows directory in $repo. Skipping."
+              popd >/dev/null
               continue
             fi
-            
-            echo "✅ Workflow file: $workflow_file"
-            
-            # Clone repository with PAT token
-            echo "📥 Cloning repository: $repo"
-            git clone https://x-access-token:$GH_TOKEN@github.com/AshishGodse/$repo.git temp/$repo
-            
-            # Extract old hash from workflow file
-            old_hash=$(grep -oP 'workflow-X\.yml@\K[a-f0-9]{40}' temp/$repo/$workflow_file 2>/dev/null || echo "")
-            
-            if [ -z "$old_hash" ]; then
-              echo "❌ No workflow-X reference found in $repo"
+
+            changed=false
+
+            while IFS= read -r -d '' wf; do
+              echo "Checking workflow file: $wf"
+              old_hashes=$(grep -oP 'workflow-X\.yml@\K[a-f0-9]{40}' "$wf" || true)
+              if [ -z "$old_hashes" ]; then
+                echo "  No workflow-X reference found in $wf"
+                continue
+              fi
+
+              echo "$old_hashes" | sort -u | while read -r old_hash; do
+                if [ -z "$old_hash" ]; then
+                  continue
+                fi
+                echo "  Found reference: workflow-X.yml@$old_hash"
+                if [ "$old_hash" = "$NEW_HASH" ]; then
+                  echo "  Already up-to-date in this file."
+                  continue
+                fi
+                echo "  Replacing $old_hash -> $NEW_HASH in $wf"
+                sed -E -i "s/${old_hash}/${NEW_HASH}/g" "$wf"
+                changed=true
+              done
+            done < <(find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) -print0)
+
+            if [ "$changed" = false ]; then
+              echo "No workflow-X references updated in $repo. Cleaning up and moving on."
+              popd >/dev/null
               continue
             fi
-            
-            echo "📌 Current hash in $repo: $old_hash"
-            echo "📌 New hash from common repo: $NEW_HASH"
-            
-            if [ "$old_hash" == "$NEW_HASH" ]; then
-              echo "✅ Hash already up-to-date in $repo"
-              echo ""
-              continue
-            fi
-            
-            echo "🔄 Updating $repo: $old_hash -> $NEW_HASH"
-            
-            # Update workflow file
-            cd temp/$repo
-            sed -i "s/${old_hash}/${NEW_HASH}/g" $workflow_file
-            
-            # Configure git
+
             git config user.email "automation@github.com"
             git config user.name "Automation Bot"
-            
-            # Create branch and commit
-            branch_name="update-workflow-x-${NEW_HASH:0:8}"
-            echo "🌿 Creating branch: $branch_name"
-            git checkout -b $branch_name
-            git add $workflow_file
-            git commit -m "chore: update workflow-x reference to ${NEW_HASH:0:8}"
-            
-            # Push branch with PAT token
-            echo "📤 Pushing branch to origin"
-            git push https://x-access-token:$GH_TOKEN@github.com/AshishGodse/$repo.git $branch_name
-            
-            # Create PR
-            echo "📝 Creating Pull Request"
-            gh pr create \
-              --title "chore: update workflow-x reference to ${NEW_HASH:0:8}" \
-              --body "Automated update for workflow-x commit reference\n\nOld hash: $old_hash\nNew hash: $NEW_HASH\n\nThis PR was automatically created by Workflow Z" \
-              --base main \
-              --head $branch_name || echo "⚠️ PR creation might have issues but branch is pushed"
-            
-            cd ../..
+
+            branch_name="update-workflow-x-${NEW_HASH_SHORT}"
+            echo "Creating branch: $branch_name"
+            git checkout -b "$branch_name"
+
+            git add .github/workflows || true
+            if git diff --cached --quiet; then
+              echo "No changes staged after replacement, skipping commit."
+              popd >/dev/null
+              continue
+            fi
+
+            git commit -m "chore: update workflow-x reference to ${NEW_HASH_SHORT}"
+
+            echo "Pushing branch to origin"
+            git push https://x-access-token:$GH_TOKEN@github.com/$TARGET_ORG/$repo.git "$branch_name"
+
+            echo "Creating Pull Request"
+            gh auth status || true
+            gh pr create --repo "$TARGET_ORG/$repo" \
+              --title "chore: update workflow-x reference to ${NEW_HASH_SHORT}" \
+              --body "Automated update for workflow-x commit reference\n\nOld hash: $(git rev-parse HEAD)\nNew hash: $NEW_HASH\n\nThis PR was automatically created by Workflow Z" \
+              --head "$branch_name" \
+              --base main || echo "⚠️ PR creation might have issues but branch is pushed"
+
+            popd >/dev/null
+
             echo "✅ Completed processing $repo"
             echo ""
-          done
-          
+          done < repos.txt
+
           echo "=========================================="
-          echo "✅ All repositories processed successfully"
+          echo "✅ All repositories processed (where applicable)"
           echo "=========================================="
+        shell: bash
+
+      - name: Cleanup temp directory
+        if: always()
+        run: |
+          rm -rf temp || true
         shell: bash
