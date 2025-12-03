@@ -70,7 +70,7 @@ jobs:
       - name: Check and process PRs in all repos
         env:
           TARGET_ORG: AshishGodse
-          GH_TOKEN: ${{ secrets.WORKFLOW_Z_TOKEN }}
+          GH_TOKEN: ${{ secrets.WORKFLOW_A_TOKEN }}
         run: |
           set -euo pipefail
           
